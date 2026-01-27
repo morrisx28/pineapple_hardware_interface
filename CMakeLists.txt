@@ -19,23 +19,62 @@ target_include_directories(motor PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/src/canfd/include
     ${LIBUSB_INCLUDE_DIRS}
 )
-target_link_libraries(motor PRIVATE
+
+# Select proper library based on architecture
+if(CMAKE_HOST_SYSTEM_PROCESSOR MATCHES "aarch64")
+    target_link_libraries(motor PRIVATE
     Threads::Threads
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/canfd/lib/libu2canfd.a
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/canfd/lib/arm/libu2canfd.a
     ${LIBUSB_LIBRARIES}
 )
+else()
+    target_link_libraries(motor PRIVATE
+    Threads::Threads
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/canfd/lib/x86/libu2canfd.a
+    ${LIBUSB_LIBRARIES}
+)
+endif()
 
-# FILE (GLOB HARDWARE_SRC
-#         src/pineapple_hardware/*.cc
-#         src/canfd/*.cc)
+## IMU setup
+include_directories(
+    # ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_SOURCE_DIR}/xspublic
+    ${CMAKE_SOURCE_DIR}/xspublic/xscontroller/include
+    ${CMAKE_SOURCE_DIR}/xspublic/xscommon/include
+    ${CMAKE_SOURCE_DIR}/xspublic/xstypes/include
+)
+
+link_directories(
+    ${CMAKE_SOURCE_DIR}/xspublic/xscontroller
+    ${CMAKE_SOURCE_DIR}/xspublic/xscommon
+    ${CMAKE_SOURCE_DIR}/xspublic/xstypes
+)
+
+# Xsens libs
+set(XSENS_OBJ_LIBS
+    xscontroller
+    xscommon
+    xstypes
+    dl
+)
+
+FILE (GLOB HARDWARE_SRC
+        src/pineapple_hardware/*.cc)
 
 set(HARDWARE_DEPENDENCIES 
     pthread
     yaml-cpp
-    unitree_sdk2)
+    unitree_sdk2
+)
 
 
-add_executable(pineapple_hardware_interface  src/main.cc)
-target_link_libraries(pineapple_hardware_interface  ${HARDWARE_DEPENDENCIES} motor)
+add_executable(pineapple_hardware_interface ${HARDWARE_SRC} src/main.cc)
+target_link_libraries(pineapple_hardware_interface  ${HARDWARE_DEPENDENCIES} motor ${XSENS_OBJ_LIBS})
 
 SET(CMAKE_BUILD_TYPE Release)
+
+# Add Xsens examples
+add_executable(example_mti_receive_data
+    src/test/example_mti_receive_data.cpp
+)
+target_link_libraries(example_mti_receive_data ${XSENS_OBJ_LIBS})
