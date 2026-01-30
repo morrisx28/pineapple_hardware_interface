@@ -59,7 +59,8 @@ set(XSENS_OBJ_LIBS
 )
 
 FILE (GLOB HARDWARE_SRC
-        src/pineapple_hardware/*.cc)
+        src/pineapple_hardware/*.cc
+        src/imu/*.hpp)
 
 set(HARDWARE_DEPENDENCIES 
     pthread

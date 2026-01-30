@@ -17,6 +17,9 @@ PineappleSdk2Bridge::PineappleSdk2Bridge(const char *dev_sn)
 
     low_state_go_puber_.reset(new ChannelPublisher<unitree_go::msg::dds_::LowState_>(TOPIC_LOWSTATE));
     low_state_go_puber_->InitChannel();
+    
+    InitXsensIMU();
+    xsens_imu_thread = std::thread(&PineappleSdk2Bridge::ProcessXsensData, this);
 
     lowStatePuberThreadPtr = CreateRecurrentThreadEx("lowstate", UT_CPU_ID_NONE, 2000, &PineappleSdk2Bridge::PublishLowStateGo, this);
 
@@ -24,6 +27,9 @@ PineappleSdk2Bridge::PineappleSdk2Bridge(const char *dev_sn)
 
 PineappleSdk2Bridge::~PineappleSdk2Bridge()
 {
+    is_running = false;
+    xsens_imu_thread.join();
+    CloseXsensIMU();
     
 }
 
@@ -42,7 +48,6 @@ void PineappleSdk2Bridge::LowCmdGoHandler(const void *msg)
     {
         motor_control->control_mit(*motor_control->getMotor(can_id_list[i]), cmd->motor_cmd()[i].kp(), cmd->motor_cmd()[i].kd(), 
                                                             cmd->motor_cmd()[i].q(), cmd->motor_cmd()[i].dq(), cmd->motor_cmd()[i].tau());
-        // motor_control->control_vel(*motor_control->getMotor(can_id_list[i]), cmd->motor_cmd()[i].dq());
     }
 }
 
@@ -56,26 +61,106 @@ void PineappleSdk2Bridge::PublishLowStateGo()
         low_state_go_.motor_state()[i].tau_est() = motor_control->getMotor(can_id_list[i])->Get_tau();
     }
     
+    if (have_imu_)
+    {
+        low_state_go_.imu_state().quaternion()[0] = xsens_imu_data->quaternion[0];
+        low_state_go_.imu_state().quaternion()[1] = xsens_imu_data->quaternion[1];
+        low_state_go_.imu_state().quaternion()[2] = xsens_imu_data->quaternion[2];
+        low_state_go_.imu_state().quaternion()[3] = xsens_imu_data->quaternion[3];
 
+        low_state_go_.imu_state().gyroscope()[0] = xsens_imu_data->gyro[0];
+        low_state_go_.imu_state().gyroscope()[1] = xsens_imu_data->gyro[1];
+        low_state_go_.imu_state().gyroscope()[2] = xsens_imu_data->gyro[2];
+
+        low_state_go_.imu_state().accelerometer()[0] = xsens_imu_data->accel[0];
+        low_state_go_.imu_state().accelerometer()[1] = xsens_imu_data->accel[1];
+        low_state_go_.imu_state().accelerometer()[2] = xsens_imu_data->accel[2];
+    }
     low_state_go_puber_->Write(low_state_go_);
 
-    //     if (have_imu_)
-    //     {
-    //         low_state_go_.imu_state().quaternion()[0] = mj_data_->sensordata[dim_motor_sensor_ + 0];
-    //         low_state_go_.imu_state().quaternion()[1] = mj_data_->sensordata[dim_motor_sensor_ + 1];
-    //         low_state_go_.imu_state().quaternion()[2] = mj_data_->sensordata[dim_motor_sensor_ + 2];
-    //         low_state_go_.imu_state().quaternion()[3] = mj_data_->sensordata[dim_motor_sensor_ + 3];
+}
 
-    //         low_state_go_.imu_state().gyroscope()[0] = mj_data_->sensordata[dim_motor_sensor_ + 4];
-    //         low_state_go_.imu_state().gyroscope()[1] = mj_data_->sensordata[dim_motor_sensor_ + 5];
-    //         low_state_go_.imu_state().gyroscope()[2] = mj_data_->sensordata[dim_motor_sensor_ + 6];
+void PineappleSdk2Bridge::InitXsensIMU()
+{
+    xsens_control = XsControl::construct();
+    XsPortInfoArray xsens_portInfoArray = XsScanner::scanPorts();
+    for (auto const &portInfo : xsens_portInfoArray)
+    {
+        if (portInfo.deviceId().isMti() || portInfo.deviceId().isMtig())
+        {
+            xsens_mtPort = portInfo;
+            break;
+        }
+    }
+    if (xsens_mtPort.empty()) {
+        std::cerr << "No MTi device found. IMU thread exiting." << std::endl;
+        return;
+    }
+    if (!xsens_control->openPort(xsens_mtPort.portName().toStdString(), xsens_mtPort.baudrate())) {
+        std::cerr << "Could not open IMU port. IMU thread exiting." << std::endl;
+        return;
+    }
+    // Get the device object
+    cout << "Found a device with ID: " << xsens_mtPort.deviceId().toString().toStdString() << " @ port: " << xsens_mtPort.portName().toStdString() << ", baudrate: " << xsens_mtPort.baudrate() << endl;
+	xsens_device = xsens_control->device(xsens_mtPort.deviceId());
+	assert(xsens_device != 0);
 
-    //         low_state_go_.imu_state().accelerometer()[0] = mj_data_->sensordata[dim_motor_sensor_ + 7];
-    //         low_state_go_.imu_state().accelerometer()[1] = mj_data_->sensordata[dim_motor_sensor_ + 8];
-    //         low_state_go_.imu_state().accelerometer()[2] = mj_data_->sensordata[dim_motor_sensor_ + 9];
-    //     }
+	cout << "Device: " << xsens_device->productCode().toStdString() << ", with ID: " << xsens_device->deviceId().toString() << " opened." << endl;
 
-    //     low_state_go_puber_->Write(low_state_go_);
-    // }
+    xsens_device->addCallbackHandler(&xsens_callback);
+    if (!xsens_device->gotoConfig()) return;
+    xsens_device->readEmtsAndDeviceConfiguration();
+    XsOutputConfigurationArray configArray;
+    configArray.push_back(XsOutputConfiguration(XDI_PacketCounter, 0));
+	configArray.push_back(XsOutputConfiguration(XDI_SampleTimeFine, 0));
+    if (xsens_device->deviceId().isVru() || xsens_device->deviceId().isAhrs())
+	{
+		configArray.push_back(XsOutputConfiguration(XDI_Quaternion, 100));
+        configArray.push_back(XsOutputConfiguration(XDI_RateOfTurnHR, 1000));
+        configArray.push_back(XsOutputConfiguration(XDI_AccelerationHR, 1000));
+	}
+    if (!xsens_device->setOutputConfiguration(configArray)) return;
+    if (!xsens_device->gotoMeasurement()) return;
+}
+
+void PineappleSdk2Bridge::ProcessXsensData()
+{
+    
+    while (is_running) {
+        if (xsens_callback.packetAvailable()) {         
+            XsDataPacket packet = xsens_callback.getNextPacket();
+
+            if (packet.containsOrientation()) {
+                XsQuaternion q = packet.orientationQuaternion();
+                xsens_imu_data->quaternion[0] = q.w();
+                xsens_imu_data->quaternion[1] = q.x();
+                xsens_imu_data->quaternion[2] = q.y();
+                xsens_imu_data->quaternion[3] = q.z();
+                XsEuler euler = packet.orientationEuler();
+                xsens_imu_data->rpy[0] = euler.roll();
+                xsens_imu_data->rpy[1] = euler.pitch();
+                xsens_imu_data->rpy[2] = euler.yaw();
+            }
+            if (packet.containsRateOfTurnHR()) {
+                XsVector gyr_hr = packet.rateOfTurnHR();
+                for (int i = 0; i < 3; ++i) {
+                    xsens_imu_data->gyro[i] = gyr_hr[i];
+                }
+            }
+            if (packet.containsAccelerationHR()) {
+                XsVector acc_hr = packet.accelerationHR();
+                for (int i = 0; i < 3; ++i) {
+                    xsens_imu_data->accel[i] = acc_hr[i];
+                }
+            }
+        }
+        XsTime::msleep(1);
+    }
+}
+
+void PineappleSdk2Bridge::CloseXsensIMU()
+{
+    xsens_control->closePort(xsens_mtPort.portName().toStdString());
+    xsens_control->destruct();
 }
 
