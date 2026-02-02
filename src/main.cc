@@ -30,6 +30,8 @@ void signalHandler(int signum) {
     std::cerr << "\nInterrupt signal (" << signum << ") received.\n";
 }
 
+Journaller* gJournal = 0; // Xsens IMU related
+
 int main(int argc, char **argv)
 {
     std::signal(SIGINT, signalHandler);
