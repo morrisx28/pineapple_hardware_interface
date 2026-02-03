@@ -11,6 +11,12 @@ PineappleSdk2Bridge::PineappleSdk2Bridge(const char *dev_sn)
     }
     motor_control = std::make_shared<damiao::Motor_Control>(nom_baud,dat_baud,
       dev_sn,&dm_data_list);
+    xsens_imu_data = std::make_shared<ImuSharedData>();
+
+    if (set_zero_)
+    {
+        SetMotorToZero();
+    }
 
     low_cmd_go_suber_.reset(new ChannelSubscriber<unitree_go::msg::dds_::LowCmd_>(TOPIC_LOWCMD));
     low_cmd_go_suber_->InitChannel(bind(&PineappleSdk2Bridge::LowCmdGoHandler, this, placeholders::_1), 1);
@@ -18,8 +24,10 @@ PineappleSdk2Bridge::PineappleSdk2Bridge(const char *dev_sn)
     low_state_go_puber_.reset(new ChannelPublisher<unitree_go::msg::dds_::LowState_>(TOPIC_LOWSTATE));
     low_state_go_puber_->InitChannel();
     
-    InitXsensIMU();
-    xsens_imu_thread = std::thread(&PineappleSdk2Bridge::ProcessXsensData, this);
+    if (have_imu_) {
+        InitXsensIMU();
+        xsens_imu_thread = std::thread(&PineappleSdk2Bridge::ProcessXsensData, this);
+    }
 
     lowStatePuberThreadPtr = CreateRecurrentThreadEx("lowstate", UT_CPU_ID_NONE, 2000, &PineappleSdk2Bridge::PublishLowStateGo, this);
 
@@ -28,8 +36,10 @@ PineappleSdk2Bridge::PineappleSdk2Bridge(const char *dev_sn)
 PineappleSdk2Bridge::~PineappleSdk2Bridge()
 {
     is_running = false;
-    xsens_imu_thread.join();
-    CloseXsensIMU();
+    if (have_imu_) {
+        xsens_imu_thread.join();
+        CloseXsensIMU();
+    }
     
 }
 
@@ -46,8 +56,12 @@ void PineappleSdk2Bridge::LowCmdGoHandler(const void *msg)
     const unitree_go::msg::dds_::LowCmd_ *cmd = (const unitree_go::msg::dds_::LowCmd_ *)msg;
     for (int i = 0; i < num_motor_; i++)
     {
+        double cmd_q = cmd->motor_cmd()[i].q() * direction[i] + motor_offset[i];
+        double cmd_dq = cmd->motor_cmd()[i].dq() * direction[i];
+        double cmd_tau = cmd->motor_cmd()[i].tau() * direction[i];
+
         motor_control->control_mit(*motor_control->getMotor(can_id_list[i]), cmd->motor_cmd()[i].kp(), cmd->motor_cmd()[i].kd(), 
-                                                            cmd->motor_cmd()[i].q(), cmd->motor_cmd()[i].dq(), cmd->motor_cmd()[i].tau());
+                                                            cmd_q, cmd_dq, cmd_tau);
     }
 }
 
@@ -56,9 +70,13 @@ void PineappleSdk2Bridge::PublishLowStateGo()
 
     for (uint16_t i = 0;i < num_motor_; i++)
     {
-        low_state_go_.motor_state()[i].q() = motor_control->getMotor(can_id_list[i])->Get_Position();
-        low_state_go_.motor_state()[i].dq() = motor_control->getMotor(can_id_list[i])->Get_Velocity();
-        low_state_go_.motor_state()[i].tau_est() = motor_control->getMotor(can_id_list[i])->Get_tau();
+        double pos = motor_control->getMotor(can_id_list[i])->Get_Position();
+        double vel = motor_control->getMotor(can_id_list[i])->Get_Velocity();
+        double tau = motor_control->getMotor(can_id_list[i])->Get_tau();
+        
+        low_state_go_.motor_state()[i].q() = (pos - motor_offset[i]) * direction[i];
+        low_state_go_.motor_state()[i].dq() = vel * direction[i];
+        low_state_go_.motor_state()[i].tau_est() = tau * direction[i];
     }
     
     if (have_imu_)

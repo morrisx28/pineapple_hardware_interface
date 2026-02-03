@@ -47,16 +47,17 @@ public:
     ThreadPtr lowStatePuberThreadPtr;
 
 
-    int num_motor_ = 6;
+    int num_motor_ = 8;
     int dim_motor_sensor_ = 0;
 
     int have_imu_ = true;
-    // vector<uint16_t> can_id_list{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08}; // L_hip L_thigh L_calf L_wheel R_hip R_thigh R_calf R_wheel
-    // vector<uint16_t> mst_id_list{0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18};
-    // vector<int> motor_type{damiao::DM8006, damiao::DM8006, damiao::DM8006, damiao::DM6006, damiao::DM8009, damiao::DM8009, damiao::DM6006, damiao::DM6006};
-    vector<uint16_t> can_id_list{0x01, 0x02, 0x03, 0x05, 0x06, 0x07}; // L_hip L_thigh L_calf L_wheel R_hip R_thigh R_calf R_wheel
-    vector<uint16_t> mst_id_list{0x11, 0x12, 0x13, 0x15, 0x16, 0x17};
-    vector<int> motor_type{damiao::DM8006, damiao::DM8006, damiao::DM8006, damiao::DM8009, damiao::DM8009, damiao::DM6006};
+    int set_zero_ = false;
+    vector<uint16_t> can_id_list{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08}; // L_hip L_thigh L_calf L_wheel R_hip R_thigh R_calf R_wheel
+    vector<uint16_t> mst_id_list{0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18};
+    vector<int> motor_type{damiao::DM8006, damiao::DM8006, damiao::DM8009, damiao::DM6006, damiao::DM8006, damiao::DM8006, damiao::DM8009, damiao::DM6006};
+    
+    vector<double> motor_offset{0.698, -1.919, 3.314, 0, -0.698, 1.919, -3.314, 0};
+    vector<double> direction{-1.0, 1.0, 1.0, 1.0, -1.0, -1.0, -1.0, -1.0};
     private:
 
     bool is_running = true;
@@ -68,7 +69,7 @@ public:
 
     // IMU related
     std::thread xsens_imu_thread;
-    ImuSharedData* xsens_imu_data;
+    std::shared_ptr<ImuSharedData> xsens_imu_data;
     XsControl* xsens_control = nullptr;
     XsPortInfo xsens_mtPort;
     CallbackHandler xsens_callback;
