@@ -5,7 +5,7 @@ PineappleSdk2Bridge::PineappleSdk2Bridge(const char *dev_sn)
     for (int i=0; i < num_motor_; i++)
     {
         dm_data_list.push_back(damiao::DmActData{.motorType = static_cast<damiao::DM_Motor_Type>(motor_type[i]),
-        .mode = damiao::POS_VEL_MODE,
+        .mode = damiao::MIT_MODE,
         .can_id=static_cast<uint16_t>(can_id_list[i]),
         .mst_id=static_cast<uint16_t>(mst_id_list[i])});
     }
