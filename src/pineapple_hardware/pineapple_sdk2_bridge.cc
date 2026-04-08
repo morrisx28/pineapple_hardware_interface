@@ -56,7 +56,8 @@ void PineappleSdk2Bridge::LowCmdGoHandler(const void *msg)
     const unitree_go::msg::dds_::LowCmd_ *cmd = (const unitree_go::msg::dds_::LowCmd_ *)msg;
     for (int i = 0; i < num_motor_; i++)
     {
-        double cmd_q = cmd->motor_cmd()[i].q() * direction[i] + motor_offset[i];
+        double raw_cmd_q = cmd->motor_cmd()[i].q();
+        double cmd_q =  std::clamp(raw_cmd_q, pos_limit_[i].lower, pos_limit_[i].upper) * direction[i] + motor_offset[i];
         double cmd_dq = cmd->motor_cmd()[i].dq() * direction[i];
         double cmd_tau = cmd->motor_cmd()[i].tau() * direction[i];
 

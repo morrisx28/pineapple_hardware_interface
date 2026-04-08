@@ -21,6 +21,11 @@ using namespace std;
 #define MOTOR_SENSOR_NUM 3
 #define NUM_MOTOR_IDL_GO 20
 
+struct MotorPosLimit {
+    double lower;
+    double upper;
+};
+
 class PineappleSdk2Bridge
 {
 public:
@@ -32,6 +37,7 @@ public:
 
     // Motor related
     void SetMotorToZero();
+    void AddMotorOffset();
 
     // IMU related
     void InitXsensIMU();
@@ -56,8 +62,19 @@ public:
     vector<uint16_t> mst_id_list{0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18};
     vector<int> motor_type{damiao::DM8006, damiao::DM8006, damiao::DM8009, damiao::DM6006, damiao::DM8006, damiao::DM8006, damiao::DM8009, damiao::DM6006};
     
-    vector<double> motor_offset{0.698, -1.919, 3.314, 0, -0.698, 1.919, -3.314, 0};
-    vector<double> direction{-1.0, 1.0, 1.0, 1.0, -1.0, -1.0, -1.0, -1.0};
+    const vector<double> motor_offset{0.698, -1.919, 3.314, 0, -0.698, 1.919, -3.314, 0};
+    const vector<double> direction{-1.0, 1.0, 1.0, 1.0, -1.0, -1.0, -1.0, -1.0};
+    const vector<MotorPosLimit> pos_limit_{
+        {-0.698, 0.698},
+        {-0.349, 1.919},
+        {-3.314, 0.174},
+        {-std::numeric_limits<double>::infinity(), std::numeric_limits<double>::infinity()},
+        {-0.698, 0.698},
+        {-0.349, 1.919},
+        {-3.314, 0.174},
+        {-std::numeric_limits<double>::infinity(), std::numeric_limits<double>::infinity()},
+    };
+
     private:
 
     bool is_running = true;
