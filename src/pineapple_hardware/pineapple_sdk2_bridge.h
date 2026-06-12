@@ -77,12 +77,15 @@ public:
 
     private:
 
+    void HandleMotorFault(int motor_idx);
+
     bool is_running = true;
     // Motor related
     std::shared_ptr<damiao::Motor_Control> motor_control;
     uint32_t nom_baud =1000000;
     uint32_t dat_baud =5000000;
     vector<damiao::DmActData> dm_data_list;
+    vector<std::chrono::steady_clock::time_point> last_fault_recovery_time_;
 
     // IMU related
     std::thread xsens_imu_thread;

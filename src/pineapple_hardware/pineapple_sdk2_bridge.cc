@@ -12,6 +12,7 @@ PineappleSdk2Bridge::PineappleSdk2Bridge(const char *dev_sn)
     motor_control = std::make_shared<damiao::Motor_Control>(nom_baud,dat_baud,
       dev_sn,&dm_data_list);
     xsens_imu_data = std::make_shared<ImuSharedData>();
+    last_fault_recovery_time_.resize(num_motor_, std::chrono::steady_clock::now());
 
     if (set_zero_)
     {
@@ -56,12 +57,17 @@ void PineappleSdk2Bridge::LowCmdGoHandler(const void *msg)
     const unitree_go::msg::dds_::LowCmd_ *cmd = (const unitree_go::msg::dds_::LowCmd_ *)msg;
     for (int i = 0; i < num_motor_; i++)
     {
+        uint8_t err = motor_control->getMotor(can_id_list[i])->Get_ERR();
+        if (err > 1) {
+            continue;
+        }
+
         double raw_cmd_q = cmd->motor_cmd()[i].q();
         double cmd_q =  std::clamp(raw_cmd_q, pos_limit_[i].lower, pos_limit_[i].upper) * direction[i] + motor_offset[i];
         double cmd_dq = cmd->motor_cmd()[i].dq() * direction[i];
         double cmd_tau = cmd->motor_cmd()[i].tau() * direction[i];
 
-        motor_control->control_mit(*motor_control->getMotor(can_id_list[i]), cmd->motor_cmd()[i].kp(), cmd->motor_cmd()[i].kd(), 
+        motor_control->control_mit(*motor_control->getMotor(can_id_list[i]), cmd->motor_cmd()[i].kp(), cmd->motor_cmd()[i].kd(),
                                                             cmd_q, cmd_dq, cmd_tau);
     }
 }
@@ -71,13 +77,21 @@ void PineappleSdk2Bridge::PublishLowStateGo()
 
     for (uint16_t i = 0;i < num_motor_; i++)
     {
-        double pos = motor_control->getMotor(can_id_list[i])->Get_Position();
-        double vel = motor_control->getMotor(can_id_list[i])->Get_Velocity();
-        double tau = motor_control->getMotor(can_id_list[i])->Get_tau();
-        
+        auto motor = motor_control->getMotor(can_id_list[i]);
+        double pos = motor->Get_Position();
+        double vel = motor->Get_Velocity();
+        double tau = motor->Get_tau();
+        uint8_t err = motor->Get_ERR();
+
         low_state_go_.motor_state()[i].q() = (pos - motor_offset[i]) * direction[i];
         low_state_go_.motor_state()[i].dq() = vel * direction[i];
         low_state_go_.motor_state()[i].tau_est() = tau * direction[i];
+        low_state_go_.motor_state()[i].mode() = err;
+        low_state_go_.motor_state()[i].temperature() = static_cast<uint8_t>(motor->Get_T_MOS());
+
+        if (err > 1) {
+            HandleMotorFault(i);
+        }
     }
     
     if (have_imu_)
@@ -175,6 +189,25 @@ void PineappleSdk2Bridge::ProcessXsensData()
         }
         XsTime::msleep(1);
     }
+}
+
+void PineappleSdk2Bridge::HandleMotorFault(int i)
+{
+    auto now = std::chrono::steady_clock::now();
+    double elapsed = std::chrono::duration<double>(now - last_fault_recovery_time_[i]).count();
+    if (elapsed < 2.0) {
+        return;
+    }
+    last_fault_recovery_time_[i] = now;
+
+    uint8_t err = motor_control->getMotor(can_id_list[i])->Get_ERR();
+    std::cerr << "[Motor " << i << " CAN_ID=0x" << std::hex << can_id_list[i]
+              << "] fault ERR=0x" << static_cast<int>(err) << std::dec
+              << " — sending clear+enable" << std::endl;
+
+    motor_control->control_cmd(can_id_list[i], 0xFB);
+    usleep(5000);
+    motor_control->control_cmd(can_id_list[i], 0xFC);
 }
 
 void PineappleSdk2Bridge::CloseXsensIMU()
