@@ -26,6 +26,7 @@ Motor::Motor(DM_Motor_Type motor_type, Control_Mode ctrl_mode,uint16_t can_id, u
         :  Motor_Type(motor_type),mode(ctrl_mode),Master_id(master_id), Can_id(can_id){
     this->limit_param = damiao::limit_param[motor_type];
     this->last_time_= std::chrono::steady_clock::now();
+    this->last_feedback_time_ = std::chrono::steady_clock::now();
 }
 
 void Motor::updateTimeInterval() 
@@ -58,6 +59,7 @@ void Motor::receive_data(float q, float dq, float tau, uint8_t err, float t_mos,
     this->state_err = err;
     this->state_t_mos = t_mos;
     this->state_t_rotor = t_rotor;
+    this->last_feedback_time_ = std::chrono::steady_clock::now();
 }
 
 void Motor::set_param(int key, float value)

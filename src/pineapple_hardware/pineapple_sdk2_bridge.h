@@ -78,6 +78,7 @@ public:
     private:
 
     void HandleMotorFault(int motor_idx);
+    bool IsMotorConnected(int motor_idx) const;
 
     bool is_running = true;
     // Motor related
@@ -86,6 +87,12 @@ public:
     uint32_t dat_baud =5000000;
     vector<damiao::DmActData> dm_data_list;
     vector<std::chrono::steady_clock::time_point> last_fault_recovery_time_;
+    vector<std::chrono::steady_clock::time_point> last_disconnect_log_time_;
+    double feedback_timeout_sec_ = 0.1;  // no feedback within this window => disconnected
+    std::chrono::steady_clock::time_point init_time_;
+    double init_grace_sec_ = 5.0;        // suppress disconnect reports during startup
+    std::chrono::steady_clock::time_point last_poll_time_;
+    double poll_interval_sec_ = 0.02;    // actively solicit feedback at 50 Hz
 
     // IMU related
     std::thread xsens_imu_thread;

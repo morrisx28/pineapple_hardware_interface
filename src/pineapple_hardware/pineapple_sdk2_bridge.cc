@@ -13,6 +13,7 @@ PineappleSdk2Bridge::PineappleSdk2Bridge(const char *dev_sn)
       dev_sn,&dm_data_list);
     xsens_imu_data = std::make_shared<ImuSharedData>();
     last_fault_recovery_time_.resize(num_motor_, std::chrono::steady_clock::now());
+    last_disconnect_log_time_.resize(num_motor_, std::chrono::steady_clock::now());
 
     if (set_zero_)
     {
@@ -30,6 +31,8 @@ PineappleSdk2Bridge::PineappleSdk2Bridge(const char *dev_sn)
         xsens_imu_thread = std::thread(&PineappleSdk2Bridge::ProcessXsensData, this);
     }
 
+    init_time_ = std::chrono::steady_clock::now();
+    last_poll_time_ = init_time_;
     lowStatePuberThreadPtr = CreateRecurrentThreadEx("lowstate", UT_CPU_ID_NONE, 2000, &PineappleSdk2Bridge::PublishLowStateGo, this);
 
 }
@@ -57,10 +60,9 @@ void PineappleSdk2Bridge::LowCmdGoHandler(const void *msg)
     const unitree_go::msg::dds_::LowCmd_ *cmd = (const unitree_go::msg::dds_::LowCmd_ *)msg;
     for (int i = 0; i < num_motor_; i++)
     {
+
         uint8_t err = motor_control->getMotor(can_id_list[i])->Get_ERR();
-        if (err > 1) {
-            continue;
-        }
+        if (err > 1) continue;
 
         double raw_cmd_q = cmd->motor_cmd()[i].q();
         double cmd_q =  std::clamp(raw_cmd_q, pos_limit_[i].lower, pos_limit_[i].upper) * direction[i] + motor_offset[i];
@@ -74,6 +76,22 @@ void PineappleSdk2Bridge::LowCmdGoHandler(const void *msg)
 
 void PineappleSdk2Bridge::PublishLowStateGo()
 {
+    // Actively solicit feedback so connection status is independent of the
+    // incoming command stream. Only poll motors that haven't reported within
+    // the poll interval, so active control_mit traffic isn't duplicated.
+    auto poll_now = std::chrono::steady_clock::now();
+    if (std::chrono::duration<double>(poll_now - last_poll_time_).count() >= poll_interval_sec_)
+    {
+        last_poll_time_ = poll_now;
+        for (int i = 0; i < num_motor_; i++)
+        {
+            auto motor = motor_control->getMotor(can_id_list[i]);
+            if (motor->GetTimeSinceLastFeedback() >= poll_interval_sec_)
+            {
+                motor_control->refresh_motor_status(*motor);
+            }
+        }
+    }
 
     for (uint16_t i = 0;i < num_motor_; i++)
     {
@@ -89,7 +107,18 @@ void PineappleSdk2Bridge::PublishLowStateGo()
         low_state_go_.motor_state()[i].mode() = err;
         low_state_go_.motor_state()[i].temperature() = static_cast<uint8_t>(motor->Get_T_MOS());
 
-        if (err > 1) {
+        if (!IsMotorConnected(i)) {
+            auto now = std::chrono::steady_clock::now();
+            double since_init = std::chrono::duration<double>(now - init_time_).count();
+            double log_elapsed = std::chrono::duration<double>(now - last_disconnect_log_time_[i]).count();
+            // Stay quiet during the startup grace window so motors have time to
+            // report in before we declare them disconnected.
+            if (since_init >= init_grace_sec_ && log_elapsed >= 2.0) {
+                last_disconnect_log_time_[i] = now;
+                std::cerr << "[Motor " << i << " CAN_ID=0x" << std::hex << can_id_list[i]
+                          << std::dec << "] not connected (no feedback received)" << std::endl;
+            }
+        } else if (err > 1) {
             HandleMotorFault(i);
         }
     }
@@ -189,6 +218,12 @@ void PineappleSdk2Bridge::ProcessXsensData()
         }
         XsTime::msleep(1);
     }
+}
+
+bool PineappleSdk2Bridge::IsMotorConnected(int motor_idx) const
+{
+    auto motor = motor_control->getMotor(can_id_list[motor_idx]);
+    return motor->GetTimeSinceLastFeedback() < feedback_timeout_sec_;
 }
 
 void PineappleSdk2Bridge::HandleMotorFault(int i)

@@ -151,6 +151,7 @@ private:
     uint8_t state_err=0;
     float state_t_mos=0.0f;
     float state_t_rotor=0.0f;
+    std::chrono::steady_clock::time_point last_feedback_time_;
     Limit_param limit_param{};
     DM_Motor_Type Motor_Type;
     Control_Mode mode;
@@ -192,6 +193,12 @@ public:
     uint8_t Get_ERR() const { return this->state_err; }
     float Get_T_MOS() const { return this->state_t_mos; }
     float Get_T_Rotor() const { return this->state_t_rotor; }
+    // Seconds elapsed since the last motor feedback frame was received.
+    // last_feedback_time_ is stamped only inside receive_data().
+    double GetTimeSinceLastFeedback() const {
+        return std::chrono::duration<double>(
+            std::chrono::steady_clock::now() - last_feedback_time_).count();
+    }
     void set_mode(Control_Mode value){ this->mode = value; }
     void set_param(int key, float value);
     void set_param(int key, uint32_t value);
