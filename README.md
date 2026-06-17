@@ -13,6 +13,7 @@ DDS hardware interface for CSL wheel-biped robot
     cd ~/pineapple_hardware_interface/src/xspublic
     make clean
     make
+    sudo usermod -G dialout -a $USER
     ```
 3. Set up motor lib
     ```
