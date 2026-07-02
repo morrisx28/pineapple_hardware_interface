@@ -60,16 +60,31 @@ void PineappleSdk2Bridge::LowCmdGoHandler(const void *msg)
     const unitree_go::msg::dds_::LowCmd_ *cmd = (const unitree_go::msg::dds_::LowCmd_ *)msg;
     for (int i = 0; i < num_motor_; i++)
     {
-
-        uint8_t err = motor_control->getMotor(can_id_list[i])->Get_ERR();
+        auto motor = motor_control->getMotor(can_id_list[i]);
+        uint8_t err = motor->Get_ERR();
         if (err > 1) continue;
 
         double raw_cmd_q = cmd->motor_cmd()[i].q();
-        double cmd_q =  std::clamp(raw_cmd_q, pos_limit_[i].lower, pos_limit_[i].upper) * direction[i] + motor_offset[i];
+        double cur_pos = (motor->Get_Position() - motor_offset[i]) * direction[i];
+
+        // Only snap the command to the limit once both the current joint pos and
+        // the incoming cmd have reached the same side of the constraint, so cmds
+        // that move away from the limit are still passed through unclamped.
+        double joint_cmd_q = raw_cmd_q;
+        if (cur_pos >= pos_limit_[i].upper && raw_cmd_q >= pos_limit_[i].upper)
+        {
+            joint_cmd_q = pos_limit_[i].upper;
+        }
+        else if (cur_pos <= pos_limit_[i].lower && raw_cmd_q <= pos_limit_[i].lower)
+        {
+            joint_cmd_q = pos_limit_[i].lower;
+        }
+
+        double cmd_q = joint_cmd_q * direction[i] + motor_offset[i];
         double cmd_dq = cmd->motor_cmd()[i].dq() * direction[i];
         double cmd_tau = cmd->motor_cmd()[i].tau() * direction[i];
 
-        motor_control->control_mit(*motor_control->getMotor(can_id_list[i]), cmd->motor_cmd()[i].kp(), cmd->motor_cmd()[i].kd(),
+        motor_control->control_mit(*motor, cmd->motor_cmd()[i].kp(), cmd->motor_cmd()[i].kd(),
                                                             cmd_q, cmd_dq, cmd_tau);
     }
 }
