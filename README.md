@@ -6,6 +6,11 @@ DDS hardware interface for CSL wheel-biped robot
 - Wheel motors: Damiao DM6006
 - IMU: Xsens Mti320
 
+## Requirement
+- USB2CANFD firmware version (app v1.0.0.1)
+- Damiao motor firmware version (v3 or v4)
+- Mti-320 (IMU) baudrate: 115200 (must enable quatenion output at MT Manger software)
+
 ## Build
 1. Follow this repo to install [unitree_sdk2](https://github.com/unitreerobotics/unitree_sdk2).
 2. Set up IMU lib
