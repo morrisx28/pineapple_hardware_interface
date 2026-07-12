@@ -53,26 +53,24 @@ public:
     ThreadPtr lowStatePuberThreadPtr;
 
 
-    int num_motor_ = 8;
+    int num_motor_ = 6;
     int dim_motor_sensor_ = 0;
 
     int have_imu_ = true;
     int set_zero_ = false;
-    vector<uint16_t> can_id_list{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08}; // L_hip L_thigh L_calf L_wheel R_hip R_thigh R_calf R_wheel
-    vector<uint16_t> mst_id_list{0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18};
-    vector<int> motor_type{damiao::DM4340, damiao::DM4340, damiao::DM4340, damiao::DM6006, damiao::DM4340, damiao::DM4340, damiao::DM4340, damiao::DM6006};
+    vector<uint16_t> can_id_list{0x01, 0x02, 0x03, 0x04, 0x05, 0x06}; // arm arm_base upper_arm fore_arm 5dof end_effector
+    vector<uint16_t> mst_id_list{0x11, 0x12, 0x13, 0x14, 0x15, 0x16};
+    vector<int> motor_type{damiao::DM4340, damiao::DM4340, damiao::DM4310, damiao::DM4310, damiao::DM4310, damiao::DM4310};
     
-    const vector<double> motor_offset{1.0472, -1.7453, 3.229, 0, -1.0472, -1.7453, 3.229, 0};
-    const vector<double> direction{1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0};
+    const vector<double> motor_offset{0, 0, 0, 0, 0, 0};
+    const vector<double> direction{1.0, 1.0, 1.0, 1.0, 1.0, 1.0};
     const vector<MotorPosLimit> pos_limit_{
-        {-1.0472, 0.6108},
-        {0, 1.7453},
-        {-3.229, 0},
-        {-std::numeric_limits<double>::infinity(), std::numeric_limits<double>::infinity()},
-        {-0.6108, 1.0472},
-        {0, 1.7453},
-        {-3.229, 0},
-        {-std::numeric_limits<double>::infinity(), std::numeric_limits<double>::infinity()},
+        {-1.57, 1.57},
+        {0, 3.14},
+        {-3.14, 0},
+        {-1.57, 1.75},
+        {-1.57, 1.57},
+        {-3.14, 3.14},
     };
 
     private:
