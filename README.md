@@ -40,7 +40,13 @@ DDS hardware interface for CSL wheel-biped robot
     ```
 ## Useage
 
+The robot variant is selected by a config file (default: `../config/config.yaml`, the wheeled robot).
+All motor parameters (CAN IDs, motor types, offsets, directions, position limits) live in the config,
+so the same binary runs every robot.
+
 ```
 cd ~/pineapple_hardware_interface/build
-sudo ./pineapple_hardware_interface
+sudo ./pineapple_hardware_interface                          # wheeled robot (config.yaml)
+sudo ./pineapple_hardware_interface ../config/config_v3.yaml  # v3 wheeled robot
+sudo ./pineapple_hardware_interface ../config/config_arm.yaml # 6-DOF arm
 ```

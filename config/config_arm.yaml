@@ -1,0 +1,19 @@
+# Pineapple 6-DOF arm
+domain_id: 1  # Domain id
+interface: "lo" # Interface
+
+set_zero: false # Zero the motors on startup
+
+# Order: arm_base upper_arm fore_arm 5dof end_effector
+can_id: [0x01, 0x02, 0x03, 0x04, 0x05, 0x06]
+mst_id: [0x11, 0x12, 0x13, 0x14, 0x15, 0x16]
+motor_type: [DM4340, DM4340, DM4310, DM4310, DM4310, DM4310]
+motor_offset: [0, 0, 0, 0, 0, 0]
+direction: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+pos_limit:
+  - [-1.57, 1.57]
+  - [0, 3.14]
+  - [-3.14, 0]
+  - [-1.57, 1.75]
+  - [-1.57, 1.57]
+  - [-3.14, 3.14]

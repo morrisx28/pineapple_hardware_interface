@@ -1,0 +1,21 @@
+# Pineapple v3 wheeled robot
+domain_id: 1  # Domain id
+interface: "lo" # Interface
+
+set_zero: false # Zero the motors on startup
+
+# Order: L_hip L_thigh L_calf L_wheel R_hip R_thigh R_calf R_wheel
+can_id: [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08]
+mst_id: [0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18]
+motor_type: [DM4340, DM4340, DM4340, DM6006, DM4340, DM4340, DM4340, DM6006]
+motor_offset: [1.0472, -1.7453, 3.229, 0, -1.0472, -1.7453, 3.229, 0]
+direction: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+pos_limit:
+  - [-1.0472, 0.6108]
+  - [0, 1.7453]
+  - [-3.229, 0]
+  - [-.inf, .inf]
+  - [-0.6108, 1.0472]
+  - [0, 1.7453]
+  - [-3.229, 0]
+  - [-.inf, .inf]
