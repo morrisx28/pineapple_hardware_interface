@@ -1,2 +1,17 @@
 domain_id: 1  # Domain id
-interface: "lo" # Interface 
+interface: "lo" # Interface
+
+set_zero: false # Zero the motors on startup
+
+# Order: L_hip L_thigh L_calf L_wheel R_hip R_thigh R_calf R_wheel
+motor_offset: [0.698, -1.919, 3.314, 0, -0.698, 1.919, -3.314, 0]
+direction: [-1.0, 1.0, 1.0, 1.0, -1.0, -1.0, -1.0, -1.0]
+pos_limit:
+  - [-0.698, 0.698]
+  - [-0.349, 1.919]
+  - [-3.314, 0.174]
+  - [-.inf, .inf]
+  - [-0.698, 0.698]
+  - [-0.349, 1.919]
+  - [-3.314, 0.174]
+  - [-.inf, .inf]

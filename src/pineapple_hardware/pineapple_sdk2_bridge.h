@@ -26,10 +26,17 @@ struct MotorPosLimit {
     double upper;
 };
 
+struct MotorConfig {
+    bool set_zero = false;
+    vector<double> motor_offset;
+    vector<double> direction;
+    vector<MotorPosLimit> pos_limit;
+};
+
 class PineappleSdk2Bridge
 {
 public:
-    PineappleSdk2Bridge(const char *dev_sn);
+    PineappleSdk2Bridge(const char *dev_sn, const MotorConfig &motor_config);
     ~PineappleSdk2Bridge();
 
     void LowCmdGoHandler(const void *msg);
@@ -57,23 +64,15 @@ public:
     int dim_motor_sensor_ = 0;
 
     int have_imu_ = true;
-    int set_zero_ = false;
+    bool set_zero_ = false;
     vector<uint16_t> can_id_list{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08}; // L_hip L_thigh L_calf L_wheel R_hip R_thigh R_calf R_wheel
     vector<uint16_t> mst_id_list{0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18};
     vector<int> motor_type{damiao::DM8006, damiao::DM8006, damiao::DM8009, damiao::DM6006, damiao::DM8006, damiao::DM8006, damiao::DM8009, damiao::DM6006};
-    
-    const vector<double> motor_offset{0.698, -1.919, 3.314, 0, -0.698, 1.919, -3.314, 0};
-    const vector<double> direction{-1.0, 1.0, 1.0, 1.0, -1.0, -1.0, -1.0, -1.0};
-    const vector<MotorPosLimit> pos_limit_{
-        {-0.698, 0.698},
-        {-0.349, 1.919},
-        {-3.314, 0.174},
-        {-std::numeric_limits<double>::infinity(), std::numeric_limits<double>::infinity()},
-        {-0.698, 0.698},
-        {-0.349, 1.919},
-        {-3.314, 0.174},
-        {-std::numeric_limits<double>::infinity(), std::numeric_limits<double>::infinity()},
-    };
+
+    // Populated from config.yaml at construction time.
+    vector<double> motor_offset;
+    vector<double> direction;
+    vector<MotorPosLimit> pos_limit_;
 
     private:
 
