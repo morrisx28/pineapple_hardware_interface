@@ -109,9 +109,20 @@ int main(int argc, char **argv)
     YAML::Node yaml_node = YAML::LoadFile("../config/config.yaml");
     config.domain_id = yaml_node["domain_id"].as<int>();
     config.interface = yaml_node["interface"].as<std::string>();
+
+    MotorConfig motor_config;
+    motor_config.set_zero = yaml_node["set_zero"].as<bool>();
+    motor_config.motor_offset = yaml_node["motor_offset"].as<std::vector<double>>();
+    motor_config.direction = yaml_node["direction"].as<std::vector<double>>();
+    for (const auto &limit : yaml_node["pos_limit"])
+    {
+        auto limit_pair = limit.as<std::vector<double>>();
+        motor_config.pos_limit.push_back({limit_pair[0], limit_pair[1]});
+    }
+
     // Main function
     ChannelFactory::Instance()->Init(config.domain_id, config.interface);
-    PineappleSdk2Bridge pineapple_interface(serial_number);
+    PineappleSdk2Bridge pineapple_interface(serial_number, motor_config);
     
     while (running) 
     {

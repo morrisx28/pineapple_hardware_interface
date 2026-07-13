@@ -26,10 +26,17 @@ struct MotorPosLimit {
     double upper;
 };
 
+struct MotorConfig {
+    bool set_zero = false;
+    vector<double> motor_offset;
+    vector<double> direction;
+    vector<MotorPosLimit> pos_limit;
+};
+
 class PineappleSdk2Bridge
 {
 public:
-    PineappleSdk2Bridge(const char *dev_sn);
+    PineappleSdk2Bridge(const char *dev_sn, const MotorConfig &motor_config);
     ~PineappleSdk2Bridge();
 
     void LowCmdGoHandler(const void *msg);
@@ -57,21 +64,15 @@ public:
     int dim_motor_sensor_ = 0;
 
     int have_imu_ = true;
-    int set_zero_ = false;
+    bool set_zero_ = false;
     vector<uint16_t> can_id_list{0x01, 0x02, 0x03, 0x04, 0x05, 0x06}; // arm arm_base upper_arm fore_arm 5dof end_effector
     vector<uint16_t> mst_id_list{0x11, 0x12, 0x13, 0x14, 0x15, 0x16};
     vector<int> motor_type{damiao::DM4340, damiao::DM4340, damiao::DM4310, damiao::DM4310, damiao::DM4310, damiao::DM4310};
-    
-    const vector<double> motor_offset{0, 0, 0, 0, 0, 0};
-    const vector<double> direction{1.0, 1.0, 1.0, 1.0, 1.0, 1.0};
-    const vector<MotorPosLimit> pos_limit_{
-        {-1.57, 1.57},
-        {0, 3.14},
-        {-3.14, 0},
-        {-1.57, 1.75},
-        {-1.57, 1.57},
-        {-3.14, 3.14},
-    };
+
+    // Populated from config.yaml at construction time.
+    vector<double> motor_offset;
+    vector<double> direction;
+    vector<MotorPosLimit> pos_limit_;
 
     private:
 

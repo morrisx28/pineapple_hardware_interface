@@ -1,2 +1,15 @@
 domain_id: 1  # Domain id
-interface: "lo" # Interface 
+interface: "lo" # Interface
+
+set_zero: false # Zero the motors on startup
+
+# Order: arm arm_base upper_arm fore_arm 5dof end_effector
+motor_offset: [0, 0, 0, 0, 0, 0]
+direction: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+pos_limit:
+  - [-1.57, 1.57]
+  - [0, 3.14]
+  - [-3.14, 0]
+  - [-1.57, 1.75]
+  - [-1.57, 1.57]
+  - [-3.14, 3.14]

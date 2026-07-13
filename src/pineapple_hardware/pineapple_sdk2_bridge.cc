@@ -1,6 +1,10 @@
 #include "pineapple_sdk2_bridge.h"
 
-PineappleSdk2Bridge::PineappleSdk2Bridge(const char *dev_sn)
+PineappleSdk2Bridge::PineappleSdk2Bridge(const char *dev_sn, const MotorConfig &motor_config)
+    : set_zero_(motor_config.set_zero),
+      motor_offset(motor_config.motor_offset),
+      direction(motor_config.direction),
+      pos_limit_(motor_config.pos_limit)
 {
     for (int i=0; i < num_motor_; i++)
     {
