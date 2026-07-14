@@ -12,6 +12,7 @@
 #include <thread>
 #include <csignal>
 #include <unordered_map>
+#include <vector>
 
 #include "pineapple_hardware/pineapple_sdk2_bridge.h"
 #include <pthread.h>
@@ -51,87 +52,21 @@ void signalHandler(int signum) {
 
 Journaller* gJournal = 0; // Xsens IMU related
 
-int main(int argc, char **argv)
+// Load one platform (one USB2CANFD device) from its config yaml.
+// Returns false on any config error.
+static bool LoadMotorConfig(const std::string &config_path, MotorConfig &motor_config)
 {
-    std::signal(SIGINT, signalHandler);
-    // *** Get USB2CANFD device ID *** //
-    libusb_context* context = nullptr;
-    int result = libusb_init(&context);
-    if (result < 0) {
-        std::cerr << "Failed to initialize libusb: " << libusb_error_name(result) << std::endl;
-        return 1;
-    }
-
-    // get device list
-    libusb_device** devices;
-    ssize_t count = libusb_get_device_list(context, &devices);
-    if (count < 0) {
-        std::cerr << "Failed to obtain device list: " << libusb_error_name(count) << std::endl;
-        libusb_exit(context);
-        return 1;
-    }
-
-    // get serial number
-    char serial_number[256] = {0};
-    // search for all
-    for (int i = 0; devices[i]; i++) {
-        libusb_device* device = devices[i];
-        
-        libusb_device_descriptor desc;
-        result = libusb_get_device_descriptor(device, &desc);
-        if (result < 0) {
-            std::cerr << "Failed to obtain device descriptor: " << libusb_error_name(result) << std::endl;
-            continue;
-        }
-        
-        if (desc.idVendor != 0x34B7 || desc.idProduct != 0x6877) {
-            continue;
-        }
-        
-        // open device
-        libusb_device_handle* handle = nullptr;
-        result = libusb_open(device, &handle);
-        if (result != LIBUSB_SUCCESS) {
-            std::cerr << "Failed to open device: " << libusb_error_name(result) << std::endl;
-            return 0;
-        }
-        
-        if (desc.iSerialNumber > 0) {
-            result = libusb_get_string_descriptor_ascii(
-                handle, 
-                desc.iSerialNumber,
-                reinterpret_cast<unsigned char*>(serial_number),
-                sizeof(serial_number)
-            );
-            
-            if (result < 0) {
-                std::cerr << "Failed to obtain serial number: " << libusb_error_name(result) << std::endl;
-                serial_number[0] = '\0';
-                return 0;
-            }
-        }
-        
-        std::cout << "U2CANFD_DEV " << i << ":" << std::endl;
-        std::cout << "  VID: 0x" << std::hex << desc.idVendor << std::endl;
-        std::cout << "  PID: 0x" << std::hex << desc.idProduct << std::endl;
-        std::cout << "  SN: " << (serial_number[0] ? serial_number : "[No serial number]") << std::endl;
-        std::cout << std::endl;
-        
-        libusb_close(handle);
-    }
-    
-    // clear resource 
-    libusb_free_device_list(devices, 1);
-    libusb_exit(context);
-
-    // Load parameter (config file selects the robot variant, default is the wheeled robot)
-    std::string config_path = (argc > 1) ? argv[1] : "../config/config.yaml";
-    std::cout << "Loading config: " << config_path << std::endl;
     YAML::Node yaml_node = YAML::LoadFile(config_path);
-    config.domain_id = yaml_node["domain_id"].as<int>();
-    config.interface = yaml_node["interface"].as<std::string>();
 
-    MotorConfig motor_config;
+    motor_config.dev_sn = yaml_node["dev_sn"] ? yaml_node["dev_sn"].as<std::string>() : "";
+    if (motor_config.dev_sn.empty())
+    {
+        std::cerr << "Config error in " << config_path << ": dev_sn is missing or empty. "
+                  << "Run ./scan_canfd_sn to list connected USB2CANFD serial numbers "
+                  << "and fill the dev_sn field." << std::endl;
+        return false;
+    }
+
     motor_config.set_zero = yaml_node["set_zero"].as<bool>();
     motor_config.can_id_list = yaml_node["can_id"].as<std::vector<uint16_t>>();
     motor_config.mst_id_list = yaml_node["mst_id"].as<std::vector<uint16_t>>();
@@ -142,7 +77,7 @@ int main(int argc, char **argv)
         if (it == kMotorTypeByName.end())
         {
             std::cerr << "Unknown motor_type \"" << type_name << "\" in " << config_path << std::endl;
-            return 1;
+            return false;
         }
         motor_config.motor_type.push_back(it->second);
     }
@@ -163,17 +98,59 @@ int main(int argc, char **argv)
     {
         std::cerr << "Config error in " << config_path << ": can_id, mst_id, motor_type, "
                   << "motor_offset, direction and pos_limit must all have the same length" << std::endl;
-        return 1;
+        return false;
     }
+    return true;
+}
+
+int main(int argc, char **argv)
+{
+    std::signal(SIGINT, signalHandler);
+
+    // Each config file describes one platform on its own USB2CANFD device.
+    // Joint index order in LowCmd/LowState follows the argument order
+    // (e.g. wheel biped config first -> joints 0-7, arm config second -> joints 8-13).
+    std::vector<std::string> config_paths;
+    if (argc > 1)
+    {
+        for (int i = 1; i < argc; i++) config_paths.push_back(argv[i]);
+    }
+    else
+    {
+        config_paths.push_back("../config/config.yaml");
+    }
+
+    std::vector<MotorConfig> platform_configs;
+    size_t joint_base = 0;
+    for (const auto &path : config_paths)
+    {
+        MotorConfig motor_config;
+        if (!LoadMotorConfig(path, motor_config))
+        {
+            return 1;
+        }
+        size_t n = motor_config.can_id_list.size();
+        std::cout << "Platform " << platform_configs.size() << ": " << path
+                  << ", joints " << joint_base << "-" << (joint_base + n - 1)
+                  << ", dev_sn=" << motor_config.dev_sn << std::endl;
+        joint_base += n;
+        platform_configs.push_back(std::move(motor_config));
+    }
+    std::cout << "Total joints: " << joint_base << std::endl;
+
+    // DDS domain settings come from the first config
+    YAML::Node yaml_node = YAML::LoadFile(config_paths[0]);
+    config.domain_id = yaml_node["domain_id"].as<int>();
+    config.interface = yaml_node["interface"].as<std::string>();
 
     // Main function
     ChannelFactory::Instance()->Init(config.domain_id, config.interface);
-    PineappleSdk2Bridge pineapple_interface(serial_number, motor_config);
-    
-    while (running) 
+    PineappleSdk2Bridge pineapple_interface(platform_configs);
+
+    while (running)
     {
         sleep(2);
     }
-    
+
     return 0;
 }

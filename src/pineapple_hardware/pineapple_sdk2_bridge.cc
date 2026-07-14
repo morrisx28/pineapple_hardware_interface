@@ -1,32 +1,46 @@
 #include "pineapple_sdk2_bridge.h"
 
-PineappleSdk2Bridge::PineappleSdk2Bridge(const char *dev_sn, const MotorConfig &motor_config)
-    : num_motor_(motor_config.can_id_list.size()),
-      set_zero_(motor_config.set_zero),
-      can_id_list(motor_config.can_id_list),
-      mst_id_list(motor_config.mst_id_list),
-      motor_type(motor_config.motor_type),
-      motor_offset(motor_config.motor_offset),
-      direction(motor_config.direction),
-      pos_limit_(motor_config.pos_limit)
+PineappleSdk2Bridge::PineappleSdk2Bridge(const vector<MotorConfig> &platform_configs)
 {
-    for (int i=0; i < num_motor_; i++)
+
+    dm_data_lists_.reserve(platform_configs.size());
+
+    for (const auto &cfg : platform_configs)
     {
-        dm_data_list.push_back(damiao::DmActData{.motorType = static_cast<damiao::DM_Motor_Type>(motor_type[i]),
-        .mode = damiao::MIT_MODE,
-        .can_id=static_cast<uint16_t>(can_id_list[i]),
-        .mst_id=static_cast<uint16_t>(mst_id_list[i])});
+        size_t ctrl_idx = motor_controls_.size();
+        dm_data_lists_.emplace_back();
+        auto &dm_data = dm_data_lists_.back();
+        for (size_t i = 0; i < cfg.can_id_list.size(); i++)
+        {
+            dm_data.push_back(damiao::DmActData{.motorType = static_cast<damiao::DM_Motor_Type>(cfg.motor_type[i]),
+            .mode = damiao::MIT_MODE,
+            .can_id=static_cast<uint16_t>(cfg.can_id_list[i]),
+            .mst_id=static_cast<uint16_t>(cfg.mst_id_list[i])});
+            ctrl_of_motor_.push_back(ctrl_idx);
+        }
+        motor_controls_.push_back(std::make_shared<damiao::Motor_Control>(nom_baud,dat_baud,
+          cfg.dev_sn,&dm_data));
+
+        can_id_list.insert(can_id_list.end(), cfg.can_id_list.begin(), cfg.can_id_list.end());
+        mst_id_list.insert(mst_id_list.end(), cfg.mst_id_list.begin(), cfg.mst_id_list.end());
+        motor_type.insert(motor_type.end(), cfg.motor_type.begin(), cfg.motor_type.end());
+        motor_offset.insert(motor_offset.end(), cfg.motor_offset.begin(), cfg.motor_offset.end());
+        direction.insert(direction.end(), cfg.direction.begin(), cfg.direction.end());
+        pos_limit_.insert(pos_limit_.end(), cfg.pos_limit.begin(), cfg.pos_limit.end());
+
+        if (cfg.set_zero)
+        {
+            for (auto can_id : cfg.can_id_list)
+            {
+                motor_controls_[ctrl_idx]->set_zero_position(*motor_controls_[ctrl_idx]->getMotor(can_id));
+            }
+        }
     }
-    motor_control = std::make_shared<damiao::Motor_Control>(nom_baud,dat_baud,
-      dev_sn,&dm_data_list);
+    num_motor_ = can_id_list.size();
+
     xsens_imu_data = std::make_shared<ImuSharedData>();
     last_fault_recovery_time_.resize(num_motor_, std::chrono::steady_clock::now());
     last_disconnect_log_time_.resize(num_motor_, std::chrono::steady_clock::now());
-
-    if (set_zero_)
-    {
-        SetMotorToZero();
-    }
 
     low_cmd_go_suber_.reset(new ChannelSubscriber<unitree_go::msg::dds_::LowCmd_>(TOPIC_LOWCMD));
     low_cmd_go_suber_->InitChannel(bind(&PineappleSdk2Bridge::LowCmdGoHandler, this, placeholders::_1), 1);
@@ -48,27 +62,39 @@ PineappleSdk2Bridge::PineappleSdk2Bridge(const char *dev_sn, const MotorConfig &
 PineappleSdk2Bridge::~PineappleSdk2Bridge()
 {
     is_running = false;
+
+
+    if (low_cmd_go_suber_) {
+        low_cmd_go_suber_->CloseChannel();
+    }
+
+    if (lowStatePuberThreadPtr) {
+        std::static_pointer_cast<RecurrentThread>(lowStatePuberThreadPtr)->Wait(1000000);
+        lowStatePuberThreadPtr.reset();
+    }
+
     if (have_imu_) {
         xsens_imu_thread.join();
         CloseXsensIMU();
     }
-    
+
 }
 
 void PineappleSdk2Bridge::SetMotorToZero()
 {
-    for (int i = 0; i < num_motor_; i++) 
+    for (int i = 0; i < num_motor_; i++)
     {
-        motor_control->set_zero_position(*motor_control->getMotor(can_id_list[i]));
+        CtrlOf(i)->set_zero_position(*CtrlOf(i)->getMotor(can_id_list[i]));
     }
 }
 
 void PineappleSdk2Bridge::LowCmdGoHandler(const void *msg)
 {
+    if (!is_running) return;
     const unitree_go::msg::dds_::LowCmd_ *cmd = (const unitree_go::msg::dds_::LowCmd_ *)msg;
     for (int i = 0; i < num_motor_; i++)
     {
-        auto motor = motor_control->getMotor(can_id_list[i]);
+        auto motor = CtrlOf(i)->getMotor(can_id_list[i]);
         uint8_t err = motor->Get_ERR();
         if (err > 1) continue;
 
@@ -92,37 +118,42 @@ void PineappleSdk2Bridge::LowCmdGoHandler(const void *msg)
         double cmd_dq = cmd->motor_cmd()[i].dq() * direction[i];
         double cmd_tau = cmd->motor_cmd()[i].tau() * direction[i];
 
-        motor_control->control_mit(*motor, cmd->motor_cmd()[i].kp(), cmd->motor_cmd()[i].kd(),
+        CtrlOf(i)->control_mit(*motor, cmd->motor_cmd()[i].kp(), cmd->motor_cmd()[i].kd(),
                                                             cmd_q, cmd_dq, cmd_tau);
     }
 }
 
 void PineappleSdk2Bridge::PublishLowStateGo()
 {
-    // Actively solicit feedback so connection status is independent of the
-    // incoming command stream. Only poll motors that haven't reported within
-    // the poll interval, so active control_mit traffic isn't duplicated.
+    if (!is_running) return;
+
     auto poll_now = std::chrono::steady_clock::now();
     if (std::chrono::duration<double>(poll_now - last_poll_time_).count() >= poll_interval_sec_)
     {
         last_poll_time_ = poll_now;
         for (int i = 0; i < num_motor_; i++)
         {
-            auto motor = motor_control->getMotor(can_id_list[i]);
+            auto motor = CtrlOf(i)->getMotor(can_id_list[i]);
             if (motor->GetTimeSinceLastFeedback() >= poll_interval_sec_)
             {
-                motor_control->refresh_motor_status(*motor);
+                CtrlOf(i)->refresh_motor_status(*motor);
             }
         }
     }
 
     for (uint16_t i = 0;i < num_motor_; i++)
     {
-        auto motor = motor_control->getMotor(can_id_list[i]);
+        auto motor = CtrlOf(i)->getMotor(can_id_list[i]);
+        int motor_type = motor->GetMotorMode();
         double pos = motor->Get_Position();
         double vel = motor->Get_Velocity();
         double tau = motor->Get_tau();
         uint8_t err = motor->Get_ERR();
+
+        if (motor_type == damiao::DM4340)
+        {
+            pos = pos / (12.5 / M_PI);
+        }
 
         low_state_go_.motor_state()[i].q() = (pos - motor_offset[i]) * direction[i];
         low_state_go_.motor_state()[i].dq() = vel * direction[i];
@@ -245,7 +276,7 @@ void PineappleSdk2Bridge::ProcessXsensData()
 
 bool PineappleSdk2Bridge::IsMotorConnected(int motor_idx) const
 {
-    auto motor = motor_control->getMotor(can_id_list[motor_idx]);
+    auto motor = CtrlOf(motor_idx)->getMotor(can_id_list[motor_idx]);
     return motor->GetTimeSinceLastFeedback() < feedback_timeout_sec_;
 }
 
@@ -258,19 +289,23 @@ void PineappleSdk2Bridge::HandleMotorFault(int i)
     }
     last_fault_recovery_time_[i] = now;
 
-    uint8_t err = motor_control->getMotor(can_id_list[i])->Get_ERR();
+    uint8_t err = CtrlOf(i)->getMotor(can_id_list[i])->Get_ERR();
     std::cerr << "[Motor " << i << " CAN_ID=0x" << std::hex << can_id_list[i]
               << "] fault ERR=0x" << static_cast<int>(err) << std::dec
               << " — sending clear+enable" << std::endl;
 
-    motor_control->control_cmd(can_id_list[i], 0xFB);
+    CtrlOf(i)->control_cmd(can_id_list[i], 0xFB);
     usleep(5000);
-    motor_control->control_cmd(can_id_list[i], 0xFC);
+    CtrlOf(i)->control_cmd(can_id_list[i], 0xFC);
 }
 
 void PineappleSdk2Bridge::CloseXsensIMU()
 {
-    xsens_control->closePort(xsens_mtPort.portName().toStdString());
+    if (xsens_control == nullptr) return;
+    if (!xsens_mtPort.empty()) {
+        xsens_control->closePort(xsens_mtPort.portName().toStdString());
+    }
     xsens_control->destruct();
+    xsens_control = nullptr;
 }
 

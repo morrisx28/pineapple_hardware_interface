@@ -2,7 +2,8 @@
 domain_id: 1  # Domain id
 interface: "lo" # Interface
 
-set_zero: false # Zero the motors on startup
+dev_sn: ""  # USB2CANFD serial number; run ./scan_canfd_sn to list connected devices
+set_zero: false 
 
 # Order: L_hip L_thigh L_calf L_wheel R_hip R_thigh R_calf R_wheel
 can_id: [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08]

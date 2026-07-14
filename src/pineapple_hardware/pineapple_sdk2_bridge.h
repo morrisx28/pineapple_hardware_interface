@@ -26,7 +26,9 @@ struct MotorPosLimit {
     double upper;
 };
 
+// One platform = one USB2CANFD device (e.g. the wheel biped or the arm).
 struct MotorConfig {
+    string dev_sn;  // USB2CANFD serial number, from scan_canfd_sn
     bool set_zero = false;
     vector<uint16_t> can_id_list;
     vector<uint16_t> mst_id_list;
@@ -39,7 +41,9 @@ struct MotorConfig {
 class PineappleSdk2Bridge
 {
 public:
-    PineappleSdk2Bridge(const char *dev_sn, const MotorConfig &motor_config);
+    // Platforms are concatenated: the joint index in LowCmd/LowState follows
+    // the order of platform_configs (platform 0 motors first, then platform 1, ...).
+    PineappleSdk2Bridge(const vector<MotorConfig> &platform_configs);
     ~PineappleSdk2Bridge();
 
     void LowCmdGoHandler(const void *msg);
@@ -67,9 +71,8 @@ public:
 
     int have_imu_ = true;
 
-    // Populated from the robot's config yaml at construction time.
+    // Concatenation of all platform configs, indexed by global joint index.
     int num_motor_ = 0;
-    bool set_zero_ = false;
     vector<uint16_t> can_id_list;
     vector<uint16_t> mst_id_list;
     vector<int> motor_type;
@@ -82,12 +85,19 @@ public:
     void HandleMotorFault(int motor_idx);
     bool IsMotorConnected(int motor_idx) const;
 
-    bool is_running = true;
-    // Motor related
-    std::shared_ptr<damiao::Motor_Control> motor_control;
+    // Controller owning the given global joint index (one CAN bus per device).
+    std::shared_ptr<damiao::Motor_Control> CtrlOf(int motor_idx) const
+    {
+        return motor_controls_[ctrl_of_motor_[motor_idx]];
+    }
+
+    std::atomic<bool> is_running{true};
+    // Motor related: one Motor_Control per USB2CANFD device
+    vector<std::shared_ptr<damiao::Motor_Control>> motor_controls_;
+    vector<size_t> ctrl_of_motor_;  // global joint index -> motor_controls_ index
     uint32_t nom_baud =1000000;
     uint32_t dat_baud =5000000;
-    vector<damiao::DmActData> dm_data_list;
+    vector<vector<damiao::DmActData>> dm_data_lists_;  // one per device
     vector<std::chrono::steady_clock::time_point> last_fault_recovery_time_;
     vector<std::chrono::steady_clock::time_point> last_disconnect_log_time_;
     double feedback_timeout_sec_ = 0.1;  // no feedback within this window => disconnected

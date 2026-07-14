@@ -72,6 +72,11 @@ set(HARDWARE_DEPENDENCIES
 add_executable(pineapple_hardware_interface ${HARDWARE_SRC} src/main.cc)
 target_link_libraries(pineapple_hardware_interface  ${HARDWARE_DEPENDENCIES} motor ${XSENS_OBJ_LIBS})
 
+# Standalone USB2CANFD serial-number scanner
+add_executable(scan_canfd_sn src/scan_canfd_sn.cc)
+target_include_directories(scan_canfd_sn PRIVATE ${LIBUSB_INCLUDE_DIRS})
+target_link_libraries(scan_canfd_sn ${LIBUSB_LIBRARIES})
+
 SET(CMAKE_BUILD_TYPE Release)
 
 # Add Xsens examples

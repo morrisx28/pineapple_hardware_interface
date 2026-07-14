@@ -40,13 +40,38 @@ DDS hardware interface for CSL wheel-biped robot
     ```
 ## Useage
 
-The robot variant is selected by a config file (default: `../config/config.yaml`, the wheeled robot).
-All motor parameters (CAN IDs, motor types, offsets, directions, position limits) live in the config,
-so the same binary runs every robot.
+Each config file describes one platform on its own USB2CANFD device. All motor
+parameters (device serial number, CAN IDs, motor types, offsets, directions,
+position limits) live in the config, so the same binary runs every robot.
+
+### 1. Scan USB2CANFD serial numbers
 
 ```
 cd ~/pineapple_hardware_interface/build
-sudo ./pineapple_hardware_interface                          # wheeled robot (config.yaml)
-sudo ./pineapple_hardware_interface ../config/config_v3.yaml  # v3 wheeled robot
-sudo ./pineapple_hardware_interface ../config/config_arm.yaml # 6-DOF arm
+sudo ./scan_canfd_sn
+```
+
+### 2. Fill each SN into the matching config
+
+Set the `dev_sn` field in `config/config.yaml` (wheel biped) and
+`config/config_arm.yaml` (arm).
+
+### 3. Run the hardware interface
+
+Single platform:
+
+```
+cd ~/pineapple_hardware_interface/build
+sudo ./pineapple_hardware_interface                           # v2 pineapple (config.yaml)
+sudo ./pineapple_hardware_interface ../config/config_v3.yaml  # v3 pineapple
+sudo ./pineapple_hardware_interface ../config/config_arm.yaml # 6-DOF pineapple arm
+```
+
+Whole body (wheel biped + arm, two USB2CANFD devices): pass both configs.
+The joint index order in LowCmd/LowState follows the argument order —
+wheel first is the convention:
+
+```
+sudo ./pineapple_hardware_interface ../config/config.yaml ../config/config_arm.yaml
+# joints 0-7 = wheel biped, joints 8-13 = arm
 ```
