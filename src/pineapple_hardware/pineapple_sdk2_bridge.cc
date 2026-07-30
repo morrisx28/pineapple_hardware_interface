@@ -150,11 +150,6 @@ void PineappleSdk2Bridge::PublishLowStateGo()
         double tau = motor->Get_tau();
         uint8_t err = motor->Get_ERR();
 
-        if (motor_type == damiao::DM4340)
-        {
-            pos = pos / (12.5 / M_PI);
-        }
-
         low_state_go_.motor_state()[i].q() = (pos - motor_offset[i]) * direction[i];
         low_state_go_.motor_state()[i].dq() = vel * direction[i];
         low_state_go_.motor_state()[i].tau_est() = tau * direction[i];
